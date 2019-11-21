@@ -49,7 +49,7 @@ public class RetrofitWrapper {
                 .readTimeout(TIMEOUT, TimeUnit.SECONDS)
                 .build();
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl("http://10.10.168.75:8000/uat/")// TODO 请替换成自己的demo服务器地址
+                .baseUrl("请替换成自己的demo服务器地址")// TODO 请替换成自己的demo服务器地址
                 .client(client)
                 .addCallAdapterFactory(RxJavaCallAdapterFactory.create())
                 .addConverterFactory(GsonConverterFactory.create(gson))

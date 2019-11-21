@@ -44,7 +44,8 @@ public class RetrofitWrapper {
 
         okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
                 .addInterceptor(interceptor)
-                .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
+                // http 请求 log
+                //.addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
                 .connectTimeout(TIMEOUT, TimeUnit.SECONDS)
                 .readTimeout(TIMEOUT, TimeUnit.SECONDS)
                 .build();

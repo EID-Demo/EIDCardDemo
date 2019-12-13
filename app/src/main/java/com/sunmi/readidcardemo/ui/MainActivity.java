@@ -5,12 +5,14 @@ import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
 import android.nfc.tech.IsoDep;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -23,22 +25,26 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.sunmi.eidlibrary.EidCall;
 import com.sunmi.eidlibrary.EidConstants;
-import com.sunmi.eidlibrary.EidPic;
 import com.sunmi.eidlibrary.EidReadCardCallBack;
 import com.sunmi.eidlibrary.EidReader;
 import com.sunmi.eidlibrary.EidSDK;
 import com.sunmi.eidlibrary.IDCardType;
+import com.sunmi.pay.hardware.aidl.AidlConstants;
+import com.sunmi.pay.hardware.aidlv2.AidlConstantsV2;
+import com.sunmi.pay.hardware.aidlv2.readcard.CheckCardCallbackV2;
 import com.sunmi.readidcardemo.R;
-import com.sunmi.readidcardemo.net.ReadCardServer;
 import com.sunmi.readidcardemo.bean.BaseInfo;
 import com.sunmi.readidcardemo.bean.ResultInfo;
+import com.sunmi.readidcardemo.net.ReadCardServer;
+import com.sunmi.readidcardemo.utils.ByteUtils;
+import com.sunmi.readidcardemo.utils.Utils;
+import com.zkteco.android.IDReader.IDCardPhoto;
+import com.zkteco.android.IDReader.IDPhotoHelper;
 
-import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Locale;
 
 import butterknife.BindView;
@@ -47,6 +53,7 @@ import butterknife.OnClick;
 import rx.Subscriber;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.schedulers.Schedulers;
+import sunmi.paylib.SunmiPayKernel;
 
 public class MainActivity extends AppCompatActivity implements EidCall {
     public static final String TAG = "hell0";
@@ -90,7 +97,6 @@ public class MainActivity extends AppCompatActivity implements EidCall {
     private PendingIntent pi;
     private NfcAdapter nfcAdapter;
 
-    private String fileNameBase = "/sdcard/eidSunmi";
     private int readType = 0;
     private IsoDep isodep;
 
@@ -102,7 +108,7 @@ public class MainActivity extends AppCompatActivity implements EidCall {
         requestPerm();
         initNfc();
         showVersion();
-        initEidReader();
+        connectPayService();
     }
 
     private void showVersion() {
@@ -116,7 +122,7 @@ public class MainActivity extends AppCompatActivity implements EidCall {
         Log.e("TAG", "initNfc  1 ");
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         if (nfcAdapter == null) {
-            mState.setText("设备不支持NFC");
+            mState.setText("设备不支持NFC，金融设备请使金融读卡");
             return;
         }
         if (!nfcAdapter.isEnabled()) {
@@ -144,6 +150,21 @@ public class MainActivity extends AppCompatActivity implements EidCall {
         super.onPause();
         if (null != nfcAdapter) {
             nfcAdapter.disableForegroundDispatch(this);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        try {
+            // 释放金融-SDK
+            if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
+                SunmiPayKernel.getInstance().mReadCardOptV2.cancelCheckCard();
+                SunmiPayKernel.getInstance().mReadCardOptV2.cardOff(AidlConstantsV2.CardType.NFC.getValue());
+            }
+            EidSDK.destroy();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -183,12 +204,25 @@ public class MainActivity extends AppCompatActivity implements EidCall {
             case R.id.delay:
                 EidSDK.getDelayTime(this, 3);
                 break;
+            case R.id.button:
+                if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
+                    try {
+                        SunmiPayKernel.getInstance().mReadCardOptV2.cancelCheckCard();
+                        SunmiPayKernel.getInstance().mReadCardOptV2.cardOff(AidlConstantsV2.CardType.NFC.getValue());
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    checkCard();
+                } else {
+                    mState.setText("当前设备非金融机具");
+                    Toast.makeText(this, "当前设备非金融机具！", Toast.LENGTH_SHORT).show();
+                }
+                break;
         }
     }
 
     private void initEidReader() {
         try {
-            EidPic.init(this, fileNameBase);
             eid = EidSDK.getEidReaderForNfc(1, this);
         } catch (Exception e) {
             mState.setText(e.getMessage());
@@ -210,11 +244,9 @@ public class MainActivity extends AppCompatActivity implements EidCall {
                 runOnUiThread(() -> {
                     mState.setText("正在获取身份信息，请稍等...");
                 });
-                File file = new File(fileNameBase, "zp.bmp");
-                if (file.exists()) {
-                    file.deleteOnExit();
-                }
                 //通过card_id请求识读卡片的信息
+                Log.d(TAG, "onCallData: reqId:" + msg);
+                runOnUiThread(() -> mRequestId.setText("reqId:" + msg));
                 getIDCardInfo(msg);
                 break;
             case EidConstants.READ_CARD_FAILED:
@@ -394,11 +426,126 @@ public class MainActivity extends AppCompatActivity implements EidCall {
     }
 
     private void decodePic(String imgBytes) {
-        EidPic.decodePic(imgBytes);
-        Glide.with(MainActivity.this)
-                .load(new File(fileNameBase, "zp.bmp"))
-                .skipMemoryCache(true)
-                .diskCacheStrategy(DiskCacheStrategy.NONE)
-                .into(mPic);
+        try {
+            Bitmap photo = IDCardPhoto.getIDCardPhoto(IDPhotoHelper.hexStr2Bytes(imgBytes));
+            mPic.setImageBitmap(photo);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
+
+    // ---------------------------------------------- 金融设备读卡 ------------------------------
+
+    private void connectPayService() {
+        if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
+            SunmiPayKernel payKernel = SunmiPayKernel.getInstance();
+            payKernel.initPaySDK(this, mConnectCallback);
+        }
+    }
+
+
+    private SunmiPayKernel.ConnectCallback mConnectCallback = new SunmiPayKernel.ConnectCallback() {
+        @Override
+        public void onConnectPaySDK() {
+            Log.e(TAG, "onConnectPaySDK");
+        }
+
+        @Override
+        public void onDisconnectPaySDK() {
+            Log.e(TAG, "onDisconnectPaySDK");
+        }
+    };
+
+    private CheckCardCallbackV2.Stub mReadCardCallback = new CheckCardCallbackV2.Stub() {
+        @Override
+        public void findMagCard(Bundle bundle) throws RemoteException {
+            Log.e(TAG, "findMagCard,bundle:" + bundle);
+        }
+
+        @Override
+        public void findICCard(String atr) throws RemoteException {
+            Log.e(TAG, "findICCard, atr:" + atr);
+        }
+
+        @Override
+        public void findRFCard(String uuid) throws RemoteException {
+            Log.e(TAG, "findRFCard, uuid:" + uuid);
+            readCard();
+        }
+
+        @Override
+        public void onError(final int code, final String msg) throws RemoteException {
+            Log.e(TAG, "check card error,code:" + code + "message:" + msg);
+        }
+
+        @Override
+        public void findICCardEx(Bundle bundle) throws RemoteException {
+            Log.e(TAG, "findICCard, bundle:" + bundle);
+        }
+
+        @Override
+        public void findRFCardEx(Bundle bundle) throws RemoteException {
+            Log.e(TAG, "findRFCard, bundle:" + bundle);
+            //readCard();
+        }
+
+        @Override
+        public void onErrorEx(Bundle bundle) throws RemoteException {
+            Log.e(TAG, "check card error, bundle:" + bundle);
+        }
+    };
+
+    private void readCard() {
+        try {
+            eid.readCard(readType, new EidReadCardCallBack() {
+                @Override
+                public byte[] transceiveTypeB(byte[] bytes) {
+                    try {
+                        byte[] out = new byte[260];
+                        int code = SunmiPayKernel.getInstance().mReadCardOptV2.smartCardExChangePASS(AidlConstants.CardType.NFC.getValue(), bytes, out);
+                        if (code < 0) {
+                            Log.e(TAG, "读卡失败..code:" + code);
+                            return new byte[0];
+                        }
+                        int len = ByteUtils.unsignedShort2IntBE(out, 0);
+                        byte[] valid = Arrays.copyOfRange(out, 2, len + 4);
+                        return valid;
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    return new byte[0];
+                }
+
+                @Override
+                public byte[] transceiveTypeA(byte[] bytes) {
+                    try {
+                        byte[] out = new byte[255];
+                        int code = SunmiPayKernel.getInstance().mReadCardOptV2.transmitApdu(AidlConstants.CardType.NFC.getValue(), bytes, out);
+                        if (code < 0) {
+                            Log.e(TAG, "读卡失败..code:" + code);
+                            return new byte[0];
+                        }
+                        return Arrays.copyOfRange(out, 0, code);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    return new byte[0];
+                }
+            });
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 刷卡
+     */
+    private void checkCard() {
+        try {
+            SunmiPayKernel.getInstance().mReadCardOptV2.checkCard(AidlConstants.CardType.NFC.getValue(), mReadCardCallback, 60);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 }

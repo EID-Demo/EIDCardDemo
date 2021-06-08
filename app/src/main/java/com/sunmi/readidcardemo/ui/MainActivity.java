@@ -16,11 +16,11 @@ import android.os.RemoteException;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -38,10 +38,10 @@ import com.sunmi.readidcardemo.R;
 import com.sunmi.readidcardemo.bean.BaseInfo;
 import com.sunmi.readidcardemo.bean.ResultInfo;
 import com.sunmi.readidcardemo.net.ReadCardServer;
+import com.sunmi.readidcardemo.net.RetrofitWrapper;
 import com.sunmi.readidcardemo.utils.ByteUtils;
 import com.sunmi.readidcardemo.utils.Utils;
 import com.zkteco.android.IDReader.IDCardPhoto;
-import com.zkteco.android.IDReader.IDPhotoHelper;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -62,10 +62,6 @@ public class MainActivity extends AppCompatActivity implements EidCall {
     TextView mState;
     @BindView(R.id.version)
     TextView mVer;
-    @BindView(R.id.read)
-    Button mRead;
-    @BindView(R.id.delay)
-    Button mDelay;
     @BindView(R.id.name)
     TextView mName;
     @BindView(R.id.gender)
@@ -99,6 +95,9 @@ public class MainActivity extends AppCompatActivity implements EidCall {
 
     private int readType = 0;
     private IsoDep isodep;
+    private boolean init;
+
+    private static final String EID_APP_ID = ""; // TODO:  请替换应用appId
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -156,16 +155,19 @@ public class MainActivity extends AppCompatActivity implements EidCall {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        try {
-            // 释放金融-SDK
-            if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
-                SunmiPayKernel.getInstance().mReadCardOptV2.cancelCheckCard();
-                SunmiPayKernel.getInstance().mReadCardOptV2.cardOff(AidlConstantsV2.CardType.NFC.getValue());
+        if (init) {
+            try {
+                // 释放金融-SDK
+                if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
+                    SunmiPayKernel.getInstance().mReadCardOptV2.cancelCheckCard();
+                    SunmiPayKernel.getInstance().mReadCardOptV2.cardOff(AidlConstantsV2.CardType.NFC.getValue());
+                }
+                EidSDK.destroy();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-            EidSDK.destroy();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
+
     }
 
     private void requestPerm() {
@@ -195,27 +197,61 @@ public class MainActivity extends AppCompatActivity implements EidCall {
         }
     }
 
-    @OnClick({R.id.read, R.id.delay})
+    @OnClick({R.id.init, R.id.finance_read_card, R.id.clear, R.id.delay, R.id.destroy})
     public void onViewClicked(View view) {
         switch (view.getId()) {
-            case R.id.read:
+            case R.id.init:
+                if (TextUtils.isEmpty(EID_APP_ID)) {
+                    mState.setText("请替换应用appId");
+                    Toast.makeText(this, "请替换应用appId", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                try {
+                    //设置就走测试环境，不设置走正式环境
+//                    EidSDK.setDebug(EidSDK.TEST_MODE);
+                    //初始化；初始化成功后回调onCallData  code=1
+                    EidSDK.init(getApplicationContext(), EID_APP_ID, this);
+                } catch (Exception e) {
+                    mState.setText(e.getMessage());
+                }
+                break;
+            case R.id.finance_read_card:
+                if (init) {
+                    if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
+                        try {
+                            SunmiPayKernel.getInstance().mReadCardOptV2.cancelCheckCard();
+                            SunmiPayKernel.getInstance().mReadCardOptV2.cardOff(AidlConstantsV2.CardType.NFC.getValue());
+                        } catch (RemoteException e) {
+                            e.printStackTrace();
+                        }
+                        checkCard();
+                    } else {
+                        mState.setText("当前设备非金融机具");
+                        Toast.makeText(this, "当前设备非金融机具！", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    mState.setText("请先初始化SDK");
+                    Toast.makeText(this, "请先初始化SDK", Toast.LENGTH_SHORT).show();
+                }
+                break;
+            case R.id.clear:
                 clearData();
                 break;
             case R.id.delay:
-                EidSDK.getDelayTime(this, 3);
-                break;
-            case R.id.button:
-                if (Utils.isAppInstalled(this, "com.sunmi.pay.hardware_v3")) {
-                    try {
-                        SunmiPayKernel.getInstance().mReadCardOptV2.cancelCheckCard();
-                        SunmiPayKernel.getInstance().mReadCardOptV2.cardOff(AidlConstantsV2.CardType.NFC.getValue());
-                    } catch (RemoteException e) {
-                        e.printStackTrace();
-                    }
-                    checkCard();
+                if (init) {
+                    EidSDK.getDelayTime(this, 3);
                 } else {
-                    mState.setText("当前设备非金融机具");
-                    Toast.makeText(this, "当前设备非金融机具！", Toast.LENGTH_SHORT).show();
+                    mState.setText("请先初始化SDK");
+                    Toast.makeText(this, "请先初始化SDK", Toast.LENGTH_SHORT).show();
+                }
+                break;
+            case R.id.destroy:
+                if (init) {
+                    EidSDK.destroy();
+                    init = false;
+                } else {
+                    mState.setText("请先初始化SDK");
+                    Toast.makeText(this, "请先初始化SDK", Toast.LENGTH_SHORT).show();
                 }
                 break;
         }
@@ -262,6 +298,10 @@ public class MainActivity extends AppCompatActivity implements EidCall {
                     mState.setText(String.format(Locale.getDefault(), "延迟 %sms", msg));
                 });
                 break;
+            //初始化成功
+            case 1:
+                init = true;
+                initEidReader();
             default:
                 runOnUiThread(() -> {
                     mState.setText(code + ":" + msg);
@@ -271,14 +311,25 @@ public class MainActivity extends AppCompatActivity implements EidCall {
     }
 
     private void getIDCardInfo(String id) {
+        if (!init) {
+            runOnUiThread(() -> Toast.makeText(this, "请先初始化", Toast.LENGTH_SHORT).show());
+            return;
+        }
         runOnUiThread(() -> mRequestId.setText("request_id：" + id));
+
+        if (TextUtils.isEmpty(RetrofitWrapper.URL)){
+            mState.setText("请替换成自己的demo服务器地址");
+            Toast.makeText(this, "请替换成自己的demo服务器地址", Toast.LENGTH_LONG).show();
+            return;
+        }
         ReadCardServer.getInstance()
                 .parse(id)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(new Subscriber<ResultInfo>() {
                     @Override
-                    public void onCompleted() {}
+                    public void onCompleted() {
+                    }
 
                     @Override
                     public void onError(Throwable e) {
@@ -427,7 +478,7 @@ public class MainActivity extends AppCompatActivity implements EidCall {
 
     private void decodePic(String imgBytes) {
         try {
-            Bitmap photo = IDCardPhoto.getIDCardPhoto(IDPhotoHelper.hexStr2Bytes(imgBytes));
+            Bitmap photo = IDCardPhoto.getIDCardPhoto(imgBytes);
             mPic.setImageBitmap(photo);
         } catch (Exception e) {
             e.printStackTrace();

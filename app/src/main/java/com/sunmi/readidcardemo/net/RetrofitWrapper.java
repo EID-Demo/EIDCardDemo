@@ -18,7 +18,7 @@ import retrofit2.converter.gson.GsonConverterFactory;
 public class RetrofitWrapper {
     private static RetrofitWrapper instance;
     private static final int TIMEOUT = 15;
-
+    public static final String URL = "";//TODO 请替换成自己的demo服务器地址
     private RetrofitWrapper() {
     }
 
@@ -50,7 +50,7 @@ public class RetrofitWrapper {
                 .readTimeout(TIMEOUT, TimeUnit.SECONDS)
                 .build();
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl("请替换成自己的demo服务器地址")// TODO 请替换成自己的demo服务器地址
+                .baseUrl(URL)
                 .client(client)
                 .addCallAdapterFactory(RxJavaCallAdapterFactory.create())
                 .addConverterFactory(GsonConverterFactory.create(gson))

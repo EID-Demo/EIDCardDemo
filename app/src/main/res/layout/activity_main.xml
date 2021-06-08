@@ -31,18 +31,27 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/button"
+                android:id="@+id/init"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:text="SDK init" />
+
+
+            <Button
+                android:id="@+id/finance_read_card"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
                 android:text="金融读卡" />
 
             <Button
-                android:id="@+id/read"
+                android:id="@+id/clear"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
                 android:text="清除" />
+
 
             <Button
                 android:id="@+id/delay"
@@ -50,6 +59,13 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
                 android:text="延时检测" />
+
+            <Button
+                android:id="@+id/destroy"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:text="SDK销毁" />
 
         </LinearLayout>
 

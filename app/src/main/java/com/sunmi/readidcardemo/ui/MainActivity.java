@@ -56,7 +56,7 @@ import rx.schedulers.Schedulers;
 import sunmi.paylib.SunmiPayKernel;
 
 public class MainActivity extends AppCompatActivity implements EidCall {
-    public static final String TAG = "hell0";
+    public static final String TAG = "MainActivity";
 
     @BindView(R.id.state)
     TextView mState;
